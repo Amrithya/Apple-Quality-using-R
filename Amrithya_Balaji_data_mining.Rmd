@@ -1,0 +1,476 @@
+---
+title: "Apply Quality with R"
+author: "Amrithya Balaji"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# References
+
+1. **Plotting graphs** : `https://bookdown.org/yih_huynh/Guide-to-R-Book/other-graphs.html`
+2. **Corr Plot** : `https://cran.r-project.org/web/packages/corrplot/vignettes/corrplot-intro.html`
+3. **Z-score** : `https://www.analyticsvidhya.com/blog/2021/05/feature-engineering-how-to-detect-and-remove-outliers-with-python-code/`
+4. **K-means and PCA** : `https://uc-r.github.io/kmeans_clustering`
+5. **Fine tuning** : `https://machinelearningmastery.com/tune-machine-learning-algorithms-in-r/` and `https://www.r-bloggers.com/2021/04/decision-trees-in-r/`
+
+# Apple Quality Dataset Overview
+
+There are 4,001 entries in the Apple Quality Data set, and each one describes a different feature of a single apple. This data set is organized to make it easier to create machine learning models that can evaluate and forecast apple quality based on both chemical and physical traits. The following characteristics allow each entry in the data set to be uniquely identified and quantitatively described. The dataset comprises several key attributes:
+
+1. **A_id (Apple ID)**: Each apple's unique identifier.
+2. **Size**: Reflects the physical dimensions or volume.
+3. **Weight**: Mass of each apple, typically measured in grams.
+4. **Quality Attributes**:
+   1. **Sweetness**: Based on sugar content.
+   2. **Crunchiness**: Assessed via mechanical testing.
+   3. **Juiciness**: Evaluated by juice yield.
+   4. **Ripeness**: Determined through firmness or biochemical markers.
+   5. **Acidity**: Acid content affecting flavor.
+5. **Quality**: Overall quality classification into 'good' or 'bad'.
+
+# 1. Importing libraries
+
+Our data must be prepared before it is inputted into machine learning models, and the `dplyr` package offers a number of functions for data manipulation while for training and testing machine learning models in R, we use the `caret` package. `ggplot2` and `gridExtra` are used for creating plot and data visualizations. `corrplot` is for correlation plots
+
+To install any package `install.packages("package_name")`
+
+```{r}
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(corrplot)
+library(ClusterR)
+library(cluster)
+library(clue)
+library(class)
+library(factoextra) 
+library(tidyverse)
+library(pROC)
+library(rpart)  # For CART
+library(randomForest)
+```
+
+# 2.Uploading dataset
+
+The data set is an open-source data set taken from kaggle `https://www.kaggle.com/datasets/nelgiriyewithana/apple-quality`. Here, we have manually downloaded the data set and uploaded it using `read.csv`.You can replace `"your_dataset_location.csv"` with the actual path to your data set file.
+
+```{r}
+apple_quality <- read.csv("A:/learning/sem 2/data mining/project/apple/apple_quality.csv")
+```
+
+# 3.Exploratory Data Analysis
+
+Let's do some data analysis on out apple quality data set that we have.
+
+First,let's us see the shape of out dataset.
+
+```{r}
+# Finding the shape of the data using dim()
+shape <- dim(apple_quality)
+print(shape)
+```
+
+To see the head and the summary of out data set
+```{r}
+# head() gives us the first few rows of the dataset
+head(apple_quality)
+
+# For basic statistics, we use summary()
+summary(apple_quality)
+```
+To check the total number of values in each column,  
+```{r}
+# Checking the total number of values in each column
+col_values <- sapply(apple_quality, function(x) length(x))
+print(col_values)
+```
+
+So, we can conclude that each column has same number of values but we also need to check if there are any missing values in each columns.
+```{r}
+# Checking if there are any missing values in each columns
+missing_values <- colSums(is.na(apple_quality))
+
+print(missing_values)
+```
+
+There is 1 missing value.Let's check the tail of the data set which gives us the last few rows of the data set.
+
+```{r}
+# Printing the tail of the data set
+tail(apple_quality)
+```
+
+We can see the last row of the dataset is not helpful for us as it just contains the details of author of the data set. So, we can drop the last row and also we check the missing values again after removing the rows.
+
+```{r}
+# na.omit() removes the rows with missing values
+apple_quality <- na.omit(apple_quality)
+missing_values <- colSums(is.na(apple_quality))
+print(missing_values)
+```
+We can also remove column `A_id` as it does not add any valuable information and it is also duplicated. 
+
+```{r}
+# Removing the column named "A_id" as it is duplicated
+apple_quality <- apple_quality[, !(names(apple_quality) == "A_id")]
+head(apple_quality)
+```
+We can see the datatypes of each column and the values of column `Acidity` is in `double` but the datatype of `Acidity` is in `character`. So we can convert the datatype of `Acidity` to `double`. We also check for any missing values after our type conversion.
+
+```{r}
+# converting type of Acidity to double
+apple_quality$Acidity <- as.numeric(apple_quality$Acidity)
+print(typeof(apple_quality$Acidity))
+
+# Checking if there are any missing values in each columns
+missing_values <- colSums(is.na(apple_quality))
+print(missing_values)
+```
+### Analyzing values in each feature
+
+First let us convert the column `Quality` from character to binary like giving values to `GOOD = 1` and `BAD = 0`. Converting it to binary will be useful for further data analysis.
+
+```{r}
+# Converting Quality to binary (`GOOD = 1` and `BAD = 0`)
+apple_quality$Quality <- ifelse(apple_quality$Quality == "good", 1, 0)
+```
+
+Checking the distribution of Quality
+
+```{r}
+# Checking the distribution of Quality
+quality_counts <- table(apple_quality$Quality)
+print(quality_counts)
+```
+
+```{r}
+quality_counts_df <- as.data.frame(quality_counts)
+
+names(quality_counts_df) <- c("Quality", "Count")
+
+ggplot(quality_counts_df, aes(x = factor(Quality), y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  labs(title = "Frequency of 1s and 0s in Quality",
+       x = "Quality",
+       y = "Count")
+```
+
+```{r}
+# plot_distribution is used to plot the distribution of values in each column
+plot_distribution <- function(data, col_name) {
+  if(is.numeric(data[[col_name]])) {
+    ggplot(data, aes(x = !!sym(col_name))) +
+      geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black") +
+      labs(title = paste("Distribution of", col_name),
+           x = col_name,
+           y = "Frequency")
+  } else {
+    ggplot(data, aes(x = factor(!!sym(col_name)))) +
+      geom_bar(fill = "skyblue", color = "black") +
+      labs(title = paste("Distribution of", col_name),
+           x = col_name,
+           y = "Frequency")
+  }
+}
+
+for (col_name in names(apple_quality)) {
+  plots_list[[col_name]] <- plot_distribution(apple_quality, col_name)
+}
+
+grid.arrange(grobs = plots_list, ncol = 3)
+```
+Plotting correlation matrix for all numeric columns in our data set.
+
+```{r}
+# Plotting correlation matrix for all numeric columns
+correlation_matrix <- cor(apple_quality)
+corrplot(correlation_matrix, method = 'square', order = 'AOE', addCoef.col = 'black', tl.pos = 'd',
+         cl.pos = 'n', col = COL2('BrBG'))
+```
+Pair wise plotting between all features.
+
+```{r}
+# Pair wise plotting between all features.
+pairs(apple_quality, col = "blue", pch = 16, labels = colnames(apple_quality))
+```
+# 4. Data Preprocessing 
+
+The data set is also scaled so we don't have to scale the values again.We have checked the dataset for missing values and have removed all the rows containing missing values. We also need the data to be noise free and with less outliers. 
+
+```{r}
+# plotting boxplot to find outliers
+par(mfrow=c(1, ncol(apple_quality)))
+for(i in 1:ncol(apple_quality)) {
+  if(is.numeric(apple_quality[, i])) {
+    boxplot(apple_quality[, i], main=names(apple_quality)[i])
+  }
+}
+```
+From the above box plot, we can see that there are outliers in our dataset. So we can use z_scores to remove the outliers. 
+
+```{r}
+# Removing outliers using Z_Scores
+apple_quality <- as.data.frame(apple_quality)
+outlier_indices <- list()
+
+for (col_name in names(apple_quality)) {
+  z_scores <- scale(apple_quality[[col_name]])
+  threshold <- 3
+  outliers <- which(abs(z_scores) > threshold)
+  outlier_indices[[col_name]] <- outliers
+}
+all_outliers <- unique(unlist(outlier_indices))
+apple_quality <- apple_quality[-all_outliers, ]
+
+
+```
+
+```{r}
+shape <- dim(apple_quality)
+print(shape)
+```
+
+# 5. Modelling 
+
+Let us separate the feature and target variables in our data set. We know that the `Quality` is our target variable.
+
+```{r}
+# Separating target and feature variables
+target_variable <- apple_quality[, ncol(apple_quality)]
+cat("Shape of target_variable: ", length(target_variable), "\n")
+
+feature_variables <- apple_quality[, -ncol(apple_quality)]
+
+shape_feature_variables <- dim(feature_variables)
+cat("Shape of feature_variables:", shape_feature_variables, "\n")
+```
+Splitting the data set into training and test set is an important step for applying out learning models.
+
+```{r}
+# Splitting the dataset into train-test
+train_index <- createDataPartition(target_variable, p = 0.8, list = FALSE)
+train_data <- apple_quality[train_index, ]
+test_data <- apple_quality[-train_index, ]
+cat(" Shape of train_data: ", dim(train_data), "\n","Shape of test_data: ", dim(test_data))
+```
+### KMeans
+
+K-means is a distance- or centroid-based algorithm that uses distance measurements to determine how to assign a point to a cluster. Each cluster in K-Means has a centroid attached to it. Although KMeans is typically applied to unsupervised data, we can cluster our data points to see if they are easily distinguishable from one another. We apply KMeans to the entire data set. We also apply PCA through `fviz_cluster` to visualize out scatter plots. We use silhouette test to see our optimal clusters. We get `K = 2`. 
+
+```{r}
+fviz_nbclust(apple_quality, kmeans, method = "silhouette")
+```
+
+```{r}
+set.seed(240)  # for reproducibility
+apple_quality$Quality <- as.numeric(apple_quality$Quality)
+train_data$Quality <-as.numeric(train_data$Quality)
+test_data$Quality <-as.numeric(test_data$Quality)
+
+k2 <- kmeans(apple_quality, centers = 2, nstart = 25)
+str(k2)
+fviz_cluster(k2, data = apple_quality)
+head(apple_quality)
+
+```
+We can clearly see that the apple quality is not distinguishable from each other.Still, we can see how it performs on our `test_set`. We again perform PCA and we also calculate the number of principal components to retain based on the cumulative explained variance threshold.
+
+```{r}
+feature_train_data <- train_data[, !names(train_data) %in% "Quality"]
+pca_result <- prcomp(feature_train_data, center = TRUE, scale. = TRUE)
+summary(pca_result)
+plot(pca_result, type = "lines")
+biplot(pca_result)
+fviz_pca_ind(pca_result)
+pca_scores <- pca_result$x
+```
+
+```{r}
+explained_variance <- summary(pca_result)$importance[2,]
+cum_explained_variance <- cumsum(explained_variance)
+num_components <- which(cum_explained_variance >= 0.8)[1]
+pca_scores <- pca_result$x[, 1:num_components]
+```
+
+To perform on the `test_data`, we assign clusters using the centroids from the KMeans model of the training data and this finds the nearest centroid for each point in the test data where we calculate distances from the point to each cluster center. `get_cluster_assignment` is used to calculate the distance to the cluster centers. We already know the labels of the clusters that is `Cluster 1 is Good/1` and `Cluster 2 is Bad/0`.So, we get the predicted clusters and use that to predict our apple quality.
+
+
+```{r}
+feature_test_data <- test_data[, !names(test_data) %in% "target_variable"]
+
+test_data_pca <- predict(pca_result, newdata = feature_test_data)
+
+test_data_pca <- test_data_pca[, 1:num_components]
+
+get_cluster_assignment <- function(point, centers) {
+  distances <- apply(centers, 1, function(center) sum((point - center)^2))
+  return(which.min(distances))
+}
+
+suppressWarnings(test_clusters <- apply(test_data_pca, 1, get_cluster_assignment, centers = kmeans_result$centers))
+
+test_data$predicted_cluster <- test_clusters
+test_data$Quality_predicted <- ifelse(test_data$predicted_cluster == 1, 1, 0)
+
+true_clusters <- test_data$cluster # replace with your actual true cluster column name
+accuracy <- mean(test_data$Quality == test_data$Quality_predicted)
+cat("Accuracy of cluster prediction on test data:", accuracy)
+```
+```{r}
+confusion_matrix <- table(test_data$Quality,test_data$Quality_predicted)
+tp <- confusion_matrix[2, 2] #true_positive
+fp <- confusion_matrix[1, 2] #false_positive
+fn <- confusion_matrix[2, 1] #false_negative
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+f1_score <- 2 * precision * recall / (precision + recall)
+cat("Confusion_matrix: ",confusion_matrix,"\n")
+cat("F1 Score for Kmeans: ", f1_score, "\n")
+
+roc_curve <- roc(test_data$Quality, as.numeric(test_data$Quality_predicted))
+plot(roc_curve, main = "ROC Curve for Kmeans Model", col = "blue", lwd = 2)
+```
+
+The accuracy is very low as expected. So, we will try to implement other model through KNN
+
+### KNN
+
+```{r}
+train_data <- apple_quality[train_index, ]
+test_data <- apple_quality[-train_index, ]
+head(train_data)
+head(test_data)
+```
+KNN is a simple algorithm which classifies or predicts how a single data point will be grouped based on proximity. We do hyper-parameter tuning to see which `K` value performs well. We take values as `k = 1:10`. We can see the accuracies are stable with the values of `k=6,7,8`. So we can take the optimal value of `k=7`. 
+
+```{r}
+train_data$Quality <- as.factor(train_data$Quality)
+test_data$Quality <- as.factor(test_data$Quality)
+
+knn_results <- train(Quality ~ ., data = train_data, method = "knn",
+                     trControl = train_control,
+                     preProcess = "scale",
+                     tuneGrid = expand.grid(k = 1:10))
+
+# Extract accuracies and corresponding k values
+results <- knn_results$results
+k_values <- results$k
+accuracies <- results$Accuracy
+
+print(accuracies)
+
+# Create a data frame for plotting
+plot_data <- data.frame(k = k_values, Accuracy = accuracies)
+
+# Plot accuracy vs k
+ggplot(plot_data, aes(x = k, y = Accuracy)) +
+    geom_line() +
+    geom_point(shape = 19) +
+    labs(title = "KNN Accuracy vs. k",
+         x = "Number of Neighbors (k)",
+         y = "Accuracy") +
+    theme_minimal()
+```
+
+```{r}
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+# Train the model using k = 7
+knn_model <- train(Quality ~ ., data = train_data, method = "knn",
+                   trControl = train_control,
+                   preProcess = "scale",  # Ensure features are scaled
+                   tuneGrid = data.frame(k = 7))  # Using k = 7
+predictions <- predict(knn_model, newdata = test_data)
+accuracy <- sum(predictions == test_data$Quality) / nrow(test_data)
+cat("Accuracy of the KNN model with k=7: ", accuracy * 100, "%\n")
+```
+```{r}
+confusion_matrix <- table(predictions, test_data$Quality)
+tp <- confusion_matrix[2, 2] #true_positive
+fp <- confusion_matrix[1, 2] #false_positive
+fn <- confusion_matrix[2, 1] #false_negative
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+f1_score <- 2 * precision * recall / (precision + recall)
+cat("Confusion_matrix: ",confusion_matrix,"\n")
+cat("F1 Score: ", f1_score, "\n")
+
+roc_curve <- roc(test_data$Quality, as.numeric(predictions))
+plot(roc_curve, main = "ROC Curve for KNN Model", col = "blue", lwd = 2)
+```
+KNN performs very well with the `accuracy of 88 to 90%` on our `test_data`
+
+```{r}
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+metric <- "Accuracy"
+mtry <- sqrt(ncol(train_data))
+dt_random <- train(Quality ~., data=train_data, method="rpart", metric=metric, tuneLength=15, trControl=control)
+print(dt_random)
+plot(dt_random,main = "Random Search for DT Model")
+```
+
+```{r}
+test_predictions <- predict(dt_random, newdata = test_data, type = "raw", cp=0.001611863)
+
+# Evaluate accuracy
+accuracy <- mean(test_predictions == test_data$Quality)
+cat("Accuracy of DT:", accuracy)
+confusion_matrix <- table(test_predictions, test_data$Quality)
+
+tp <- confusion_matrix[2, 2] #true_positive
+fp <- confusion_matrix[1, 2] #false_positive
+fn <- confusion_matrix[2, 1] #false_negative
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+f1_score <- 2 * precision * recall / (precision + recall)
+cat("\nConfusion_matrix for DT: ",confusion_matrix,"\n")
+cat("F1 Score for DT: ", f1_score, "\n")
+
+roc_curve <- roc(test_data$Quality, as.numeric(test_predictions))
+plot(roc_curve, main = "ROC Curve for DT Model", col = "blue", lwd = 2)
+```
+
+
+```{r}
+# Random Search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+metric <- "Accuracy"
+mtry <- sqrt(ncol(train_data))
+rf_random <- train(Quality ~., data=train_data, method="rf", metric=metric, tuneLength=15, trControl=control)
+print(rf_random)
+plot(rf_random,main = "Random Search for RF Model")
+```
+
+```{r}
+test_predictions <- predict(rf_random, newdata = test_data, type = "raw", ntree=4)
+
+# Evaluate accuracy
+accuracy <- mean(test_predictions == test_data$Quality)
+cat("Accuracy of the Random forest with ntree = 4:", accuracy)
+confusion_matrix <- table(test_predictions, test_data$Quality)
+
+tp <- confusion_matrix[2, 2] #true_positive
+fp <- confusion_matrix[1, 2] #false_positive
+fn <- confusion_matrix[2, 1] #false_negative
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+f1_score <- 2 * precision * recall / (precision + recall)
+cat("\nConfusion_matrix: ",confusion_matrix,"\n")
+cat("F1 Score: ", f1_score, "\n")
+
+roc_curve <- roc(test_data$Quality, as.numeric(test_predictions))
+plot(roc_curve, main = "ROC Curve for RF Model", col = "blue", lwd = 2)
+```
+
+Model summary is presented below. We can see `KNN` performs well with better `Accuracy` and `F1 score`
+
+| Model        | Accuracy | F1 Score |
+|--------------|----------|----------|
+| Random Forest| 0.874    | 0.874    |
+| Decision Tree| 0.804    | 0.809    |
+| KNN          | 0.895    | 0.894    |
+| K-Means      | 0.653    | 0.630    |
