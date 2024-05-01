@@ -1,5 +1,5 @@
 ---
-title: "Apply Quality with R"
+title: "Classification of Apple Quality using R"
 author: "Amrithya Balaji"
 output: html_notebook
 ---
