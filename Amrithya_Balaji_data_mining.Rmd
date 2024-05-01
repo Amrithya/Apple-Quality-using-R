@@ -404,6 +404,8 @@ plot(roc_curve, main = "ROC Curve for KNN Model", col = "blue", lwd = 2)
 ```
 KNN performs very well with the `accuracy of 88 to 90%` on our `test_data`
 
+### Decision Tree
+
 ```{r}
 control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
 metric <- "Accuracy"
@@ -433,6 +435,7 @@ cat("F1 Score for DT: ", f1_score, "\n")
 roc_curve <- roc(test_data$Quality, as.numeric(test_predictions))
 plot(roc_curve, main = "ROC Curve for DT Model", col = "blue", lwd = 2)
 ```
+### Random forest
 
 
 ```{r}
